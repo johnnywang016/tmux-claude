@@ -64,11 +64,6 @@ dev:0.0|/home/user/projects/myapp|a1b2c3d4-e5f6-7890-abcd-ef1234567890
 
 | Binding | Action |
 |---------|--------|
-| `Alt+1` | Even horizontal layout |
-| `Alt+2` | Even vertical layout |
-| `Alt+3` | Main horizontal layout |
-| `Alt+4` | Main vertical layout |
-| `Alt+5` | Tiled layout |
 | `prefix + Ctrl-s` | Manual save (resurrect) |
 | `prefix + Ctrl-r` | Manual restore (resurrect) |
 
