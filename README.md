@@ -19,9 +19,10 @@ git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 ## Installation
 
 ```bash
-# From repo root
-cp devops/tmux-claude/tmux.conf ~/.tmux.conf
-cp devops/tmux-claude/tmux-claude-save.sh ~/.tmux-claude-save.sh
+# Clone and copy files
+git clone https://github.com/johnnywang016/tmux-claude.git /tmp/tmux-claude
+cp /tmp/tmux-claude/tmux.conf ~/.tmux.conf
+cp /tmp/tmux-claude/tmux-claude-save.sh ~/.tmux-claude-save.sh
 chmod +x ~/.tmux-claude-save.sh
 
 # Install plugins (inside tmux, press prefix + I)
@@ -55,8 +56,8 @@ session:window.pane|working_directory|conversation_id
 
 Example:
 ```
-inf:0.1|/home/user/projects/dyna|cad96d10-5b3d-4a30-a38a-2d37d0b742bc
-mac:0.0|/home/user/projects/dyna|a1b2c3d4-e5f6-7890-abcd-ef1234567890
+dev:0.1|/home/user/projects/myapp|cad96d10-5b3d-4a30-a38a-2d37d0b742bc
+dev:0.0|/home/user/projects/myapp|a1b2c3d4-e5f6-7890-abcd-ef1234567890
 ```
 
 ## Key Bindings
