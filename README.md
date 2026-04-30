@@ -1,13 +1,12 @@
 # Tmux + Claude Code Session Persistence
 
-Automatically save and restore your tmux layout **and** resume Claude Code conversations across reboots and crashes.
+Automatically save and restore your tmux layout **and** resume each Claude Code conversation in the exact pane it was running in — across reboots and crashes.
 
 ## What It Does
 
-- **Auto-saves** tmux sessions every 10 minutes (layout, pane contents, running processes)
-- **Auto-restores** sessions on tmux startup
-- **Tracks Claude conversations** — maps each tmux pane to its active Claude conversation ID
-- After restore, Claude panes reconnect to where you left off via `claude --continue`
+- **Auto-saves** tmux sessions every 10 minutes (layout, cwd, pane contents)
+- **Auto-restores** sessions when tmux starts
+- **Per-pane conversation tracking** — each tmux pane is mapped to its own Claude `sessionId`, so a layout with 10 different conversations comes back as 10 different conversations (not 10 copies of the same one)
 
 ## Prerequisites
 
@@ -23,28 +22,48 @@ git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 git clone https://github.com/johnnywang016/tmux-claude.git /tmp/tmux-claude
 cp /tmp/tmux-claude/tmux.conf ~/.tmux.conf
 cp /tmp/tmux-claude/tmux-claude-save.sh ~/.tmux-claude-save.sh
-chmod +x ~/.tmux-claude-save.sh
+cp /tmp/tmux-claude/tmux-claude-restore.sh ~/.tmux-claude-restore.sh
+chmod +x ~/.tmux-claude-save.sh ~/.tmux-claude-restore.sh
 
-# Install plugins (inside tmux, press prefix + I)
-tmux source ~/.tmux.conf
-# Then press Ctrl-b + I to install plugins
+# Start tmux and install plugins
+tmux              # start a session (auto-loads ~/.tmux.conf)
+# Inside tmux, press: prefix + I   (default prefix is Ctrl-b)
+# This installs tmux-resurrect and tmux-continuum.
 ```
+
+## Usage
+
+After installation, just use tmux normally. Saves happen automatically every 10 minutes.
+
+**After a reboot**, run `tmux a` (or `tmux attach`) to bring tmux back. Continuum's auto-restore fires when tmux *starts*, not on login — so you do need to launch tmux yourself once per boot. From then on, your full layout and Claude conversations come back automatically.
+
+> If you want it fully hands-off on login, add a macOS LaunchAgent or Linux systemd user unit that runs `tmux new-session -d` at login. That extra step isn't required for this repo to work.
 
 ## How It Works
 
 ```mermaid
 flowchart LR
-    A["tmux-continuum<br>(every 10 min)"] --> B["tmux-resurrect<br>(save layout)"]
-    B --> C["post-save hook"]
-    C --> D["tmux-claude-save.sh<br>(map panes → conversation IDs)"]
-    D --> E["~/.tmux-claude-session"]
+    A["tmux-continuum<br>(every 10 min)"] --> B["tmux-resurrect<br>save"]
+    B --> C["post-save hook<br>tmux-claude-save.sh"]
+    C --> D["~/.tmux-claude-session<br>pane → sessionId"]
+    E["tmux start<br>(after reboot)"] --> F["tmux-resurrect<br>restore layout"]
+    F --> G["post-restore hook<br>tmux-claude-restore.sh"]
+    G --> H["send-keys<br>claude --resume &lt;id&gt;<br>to each pane"]
 ```
 
-1. **tmux-continuum** triggers a save every 10 minutes
-2. **tmux-resurrect** captures window/pane layout and running processes
-3. A **post-save hook** runs `tmux-claude-save.sh`
-4. The script finds all panes running `claude`, looks up the most recent conversation ID from `~/.claude/projects/`, and writes mappings to `~/.tmux-claude-session`
-5. On restore, resurrect restarts `claude --continue` in the right panes (configured via `@resurrect-processes`)
+**Save path** (`tmux-claude-save.sh`):
+1. Claude Code writes a state file at `~/.claude/sessions/<pid>.json` containing the running session's `sessionId` and `cwd`.
+2. The save script reads each file, looks up the pid's controlling tty via `ps`, and matches that tty to a tmux pane via `#{pane_tty}`.
+3. It also verifies the conversation `.jsonl` has at least one real user/assistant message (skipping transient stub sessions that `claude --resume` would reject).
+4. Writes one line per pane to `~/.tmux-claude-session`:
+   ```
+   session:window.pane|cwd|sessionId
+   ```
+
+**Restore path** (`tmux-claude-restore.sh`):
+1. tmux-continuum auto-triggers a resurrect restore on tmux start.
+2. tmux-resurrect rebuilds the pane layout and cwd. Panes come back as plain shells — Claude is intentionally **not** in `@resurrect-processes`, so resurrect doesn't race every pane onto the same conversation via `claude --continue`.
+3. The post-restore hook reads `~/.tmux-claude-session` and runs `tmux send-keys "claude --resume <sessionId>"` in each mapped pane that's currently at a shell prompt.
 
 ## Session File Format
 
@@ -71,4 +90,15 @@ dev:0.0|/home/user/projects/myapp|a1b2c3d4-e5f6-7890-abcd-ef1234567890
 
 Edit `~/.tmux.conf` to adjust:
 - `@continuum-save-interval` — save frequency in minutes (default: 10)
-- `@resurrect-processes` — which commands to restore (default includes `claude --continue` and `claude`)
+- `@resurrect-processes` — which commands resurrect should auto-restart on restore. **Do not** add `claude` or `claude --continue` here; this repo handles Claude restart explicitly via the post-restore hook so each pane gets its own conversation. Adding `claude --continue` back would cause every pane to race onto the single most-recent conversation.
+
+## Troubleshooting
+
+**"No conversation found with session ID"** in a restored pane: the conversation file existed at save time but had no real messages (a stub session). The current save script filters these out, but old `~/.tmux-claude-session` files may still reference them. Just trigger a manual save (`prefix + Ctrl-s`) to refresh the mapping.
+
+**Some panes restored to plain shells, not Claude**: those panes weren't running Claude at the last save, or the save couldn't match their tty (e.g. Claude had already exited). Start `claude` manually in those panes.
+
+**Resurrect ran but conversations didn't resume**: check that `~/.tmux-claude-restore.sh` is executable and that `@resurrect-hook-post-restore-all` is set:
+```bash
+tmux show-options -g | grep resurrect-hook
+```
